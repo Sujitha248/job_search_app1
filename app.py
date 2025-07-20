@@ -13,7 +13,7 @@ FALLBACK_FILE = "fallback_jobs.csv"
 def save_fallback(df):
     try:
         df.to_csv(FALLBACK_FILE, index=False)
-        st.success(f"Fallback file saved locally as: {FALLBACK_FILE}")
+        st.success(f"Fallback file saved ")
         upload_to_github(FALLBACK_FILE)
     except Exception as e:
         st.error(f"Error saving fallback file: {e}")
@@ -45,7 +45,7 @@ def upload_to_github(file_path, commit_message="Update fallback CSV"):
         except:
             repo.create_file("fallback_jobs.csv", commit_message, content)
 
-        st.success("📤 Fallback CSV uploaded to GitHub!")
+        st.success("📤")
     except Exception as e:
         st.error(f"GitHub upload failed: {e}")
 # ------------------ Streamlit Setup ------------------
