@@ -8,54 +8,12 @@ import os
 import platform
 from github import Github
 
-def upload_to_github(file_path, commit_message="Update fallback CSV"):
-    try:
-        token = st.secrets["GITHUB_TOKEN"]
-        repo_name = st.secrets["REPO_NAME"]
+FALLBACK_FILE = "fallback_jobs.csv"
 
-        gh = Github(token)
-        repo = gh.get_repo(repo_name)
-
-        # read file text
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # does file already exist?
-        try:
-            existing = repo.get_contents("fallback_jobs.csv")
-            repo.update_file(
-                path="fallback_jobs.csv",
-                message=commit_message,
-                content=content,
-                sha=existing.sha
-            )
-        except Exception:
-            # file doesn't exist in repo yet
-            repo.create_file(
-                path="fallback_jobs.csv",
-                message=commit_message,
-                content=content
-            )
-
-        st.success("📤 Fallback CSV")
-    except Exception as e:
-        st.error(f"GitHub upload failed: {e}")
-
-# Detect if running on Streamlit Cloud or local machine
-if platform.system() == "Windows":
-    FALLBACK_FILE = os.path.join(os.path.expanduser("~"), "Documents", "fallback_jobs.csv")
-else:
-    FALLBACK_FILE = "fallback_jobs.csv"
-# ------------------ Fallback Functions ------------------
 def save_fallback(df):
     try:
-        # ensure local directory exists (important on Windows)
-        os.makedirs(os.path.dirname(FALLBACK_FILE), exist_ok=True)
-
         df.to_csv(FALLBACK_FILE, index=False)
-        st.success(f"Fallback file updated at: {FALLBACK_FILE}")
-
-        # push to GitHub as well
+        st.success(f"Fallback file saved locally as: {FALLBACK_FILE}")
         upload_to_github(FALLBACK_FILE)
     except Exception as e:
         st.error(f"Error saving fallback file: {e}")
@@ -70,6 +28,26 @@ def load_fallback():
     except Exception as e:
         st.error(f"Error loading fallback file: {e}")
         return pd.DataFrame()
+
+def upload_to_github(file_path, commit_message="Update fallback CSV"):
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo_name = st.secrets["GITHUB_REPO"]
+        gh = Github(token)
+        repo = gh.get_repo(repo_name)
+
+        with open(file_path, "r", encoding="utf-8") as file:
+            content = file.read()
+
+        try:
+            existing = repo.get_contents("fallback_jobs.csv")
+            repo.update_file("fallback_jobs.csv", commit_message, content, existing.sha)
+        except:
+            repo.create_file("fallback_jobs.csv", commit_message, content)
+
+        st.success("📤 Fallback CSV uploaded to GitHub!")
+    except Exception as e:
+        st.error(f"GitHub upload failed: {e}")
 # ------------------ Streamlit Setup ------------------
 st.set_page_config(page_title="Real-Time Job Explorer", layout="wide")
 st.title("💼 Real-Time Job Explorer")
