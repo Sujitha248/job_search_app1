@@ -37,7 +37,7 @@ def upload_to_github(file_path, commit_message="Update fallback CSV"):
                 content=content
             )
 
-        st.success("📤 Fallback CSV uploaded to GitHub!")
+        st.success("📤 Fallback CSV")
     except Exception as e:
         st.error(f"GitHub upload failed: {e}")
 
