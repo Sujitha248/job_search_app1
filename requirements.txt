@@ -3,7 +3,6 @@ pandas
 matplotlib
 seaborn
 prophet
-scikit-learn
 tabulate
-platform
+requests
 PyGithub
