@@ -92,8 +92,8 @@ if st.button("🔍 Search Jobs"):
         fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
         df.to_csv(fallback_path, index=False)
         st.success("✅ Job results updated and fallback saved.")
-    else:
-        st.warning("😕 No jobs found.")
+        else:
+          st.warning("😕 No jobs found.")
 
 #------------------ Display and Insights ------------------
 
