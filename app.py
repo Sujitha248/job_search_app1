@@ -9,14 +9,17 @@ from prophet import Prophet
 import os
 
 # ------------------ Streamlit Setup ------------------
+
 st.set_page_config(page_title="Job Explorer", layout="wide")
 st.title("💼 Real-Time Job Explorer")
 
 # ------------------ Session State Init ------------------
+
 if "job_data" not in st.session_state:
     st.session_state["job_data"] = None
 
 # ------------------ User Input Section ------------------
+
 st.markdown("## 🔍 Enter Search Criteria")
 job_title = st.text_input("Job Title:", "")
 location = st.text_input("Location:", "India")
@@ -26,7 +29,8 @@ skill = st.text_input("Required Skill (optional):", "")
 experience = st.selectbox("Experience Level:", ["", "Entry level", "Mid-Senior level", "Manager", "Director"])
 industry = st.text_input("Industry (optional):", "")
 
-# ------------------ Scrape Function ------------------
+# ------------------ Web Scraping Function ------------------
+
 def scrape_jobs(query):
     jobs = []
     try:
@@ -41,8 +45,8 @@ def scrape_jobs(query):
             title = post.find("a", class_="SerpJob-linkCard").text.strip() if post.find("a", class_="SerpJob-linkCard") else "N/A"
             company = post.find("span", class_="JobPosting-labelWithIcon").text.strip() if post.find("span", class_="JobPosting-labelWithIcon") else "N/A"
             loc = post.find("span", class_="JobPosting-labelWithIcon jobposting-location").text.strip() if post.find("span", class_="JobPosting-labelWithIcon jobposting-location") else "Not Specified"
-            posted = post.find("time")["datetime"] if post.find("time") else datetime.today().isoformat()
-            link = "https://www.simplyhired.co.in" + post.find("a", class_="SerpJob-linkCard")["href"] if post.find("a", class_="SerpJob-linkCard") else "N/A"
+            posted = post.find("time")['datetime'] if post.find("time") else datetime.today().isoformat()
+            link = "https://www.simplyhired.co.in" + post.find("a", class_="SerpJob-linkCard")['href'] if post.find("a", class_="SerpJob-linkCard") else "N/A"
             jobs.append({
                 "Job Title": title,
                 "Company": company,
@@ -51,11 +55,13 @@ def scrape_jobs(query):
                 "Skills": "N/A",
                 "Apply Link": link
             })
+
     except Exception as e:
         st.error(f"Scraping failed: {e}")
     return jobs
 
 # ------------------ Search Button ------------------
+
 if st.button("🔍 Search Jobs"):
     with st.spinner("Scraping jobs..."):
         query = f"{job_title} {location} {skill} {experience} {industry}"
@@ -66,13 +72,18 @@ if st.button("🔍 Search Jobs"):
             df["Posted"] = pd.to_datetime(df["Posted"]).dt.date
             df['Apply Link'] = df['Apply Link'].apply(lambda x: f"[Apply]({x})")
             st.session_state["job_data"] = df.copy()
+
+            # Save fallback
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             df.to_csv(fallback_path, index=False)
-            st.success("✅ Job results updated.")
+            st.success("✅ Job results updated and fallback saved.")
         else:
             st.warning("😕 No jobs found.")
+            st.write("Debug Info: No listings returned from the site.")
+            st.code(query)
 
 # ------------------ Show Filters and Charts ------------------
+
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
