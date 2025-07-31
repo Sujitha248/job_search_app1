@@ -8,63 +8,62 @@ from datetime import datetime
 import os
 
 # ------------------ Streamlit Setup ------------------
-st.set_page_config(page_title="Internshala Job Search", layout="wide")
-st.title("📘 Real-Time Internships & Jobs - Internshala (India)")
+st.set_page_config(page_title="Indeed Job Scraper", layout="wide")
+st.title("💼 Real-Time Job Search (Indeed India)")
 
-# ------------------ Session State ------------------
+# ------------------ Session Init ------------------
 if "job_data" not in st.session_state:
     st.session_state["job_data"] = None
 
 # ------------------ User Input ------------------
 st.markdown("## 🔍 Enter Search Criteria")
-job_title = st.text_input("Job Title:", "Data Science")
+job_title = st.text_input("Job Title:", "Data Analyst")
 location = st.text_input("Location:", "India")
 skill = st.text_input("Required Skill (optional):", "")
 
-# ------------------ Scraper ------------------
-def scrape_internshala(title):
+# ------------------ Scraper Function ------------------
+def scrape_indeed(title, loc):
     jobs = []
     try:
-        url = f"https://internshala.com/internships/keywords-{title.replace(' ', '-')}/"
+        base_url = "https://in.indeed.com"
+        search_url = f"{base_url}/jobs?q={title.replace(' ', '+')}&l={loc.replace(' ', '+')}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, "html.parser")
+        r = requests.get(search_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(r.text, "html.parser")
 
-        listings = soup.find_all("div", class_="individual_internship")
+        job_cards = soup.find_all("a", class_="jcs-JobTitle")
 
-        for post in listings:
-            title_tag = post.find("div", class_="heading_4_5")
-            company_tag = post.find("a", class_="link_display_like_text")
-            location_tag = post.find("a", class_="location_link")
-            posted_tag = post.find("div", class_="status-container")
-            link_tag = post.find("a", class_="view_detail_button")
+        for card in job_cards:
+            parent = card.find_parent("h2", class_="jobTitle")
+            company_span = soup.find("span", {"data-testid": "company-name"})
+            location_div = soup.find("div", {"data-testid": "text-location"})
 
             jobs.append({
-                "Job Title": title_tag.text.strip() if title_tag else "N/A",
-                "Company": company_tag.text.strip() if company_tag else "N/A",
-                "Location": location_tag.text.strip() if location_tag else "Not Specified",
+                "Job Title": card.text.strip() if card else "N/A",
+                "Company": company_span.text.strip() if company_span else "N/A",
+                "Location": location_div.text.strip() if location_div else "N/A",
                 "Posted": datetime.today().strftime("%Y-%m-%d"),
                 "Skills": skill if skill else "N/A",
-                "Apply Link": "https://internshala.com" + link_tag['href'] if link_tag else "N/A"
+                "Apply Link": base_url + card["href"] if card and card.has_attr("href") else "N/A"
             })
     except Exception as e:
-        st.error(f"Scraping failed: {e}")
+        st.error(f"Error fetching jobs: {e}")
     return jobs
 
 # ------------------ Job Search ------------------
 if st.button("🔍 Search Jobs"):
-    with st.spinner("Fetching from Internshala..."):
-        jobs = scrape_internshala(job_title)
+    with st.spinner("Scraping jobs from Indeed..."):
+        job_results = scrape_indeed(job_title, location)
 
-        if jobs:
-            df = pd.DataFrame(jobs)
-            df['Posted'] = pd.to_datetime(df['Posted'], errors='coerce').dt.date
-            df['Apply Link'] = df['Apply Link'].apply(lambda x: f"[Apply]({x})")
+        if job_results:
+            df = pd.DataFrame(job_results)
+            df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce").dt.date
+            df["Apply Link"] = df["Apply Link"].apply(lambda x: f"[Apply]({x})")
             st.session_state["job_data"] = df.copy()
 
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             df.to_csv(fallback_path, index=False)
-            st.success("✅ Job results updated.")
+            st.success("✅ Job results updated and fallback saved.")
         else:
             st.warning("😕 No jobs found.")
 
@@ -76,11 +75,11 @@ if st.session_state["job_data"] is not None:
     cities = sorted(df["Location"].dropna().unique())
     selected_city = st.selectbox("📍 Filter by City:", ["All"] + cities)
 
-    skills_list = sorted(set(
+    skills = sorted(set(
         sk.strip() for s in df["Skills"] if s != "N/A"
         for sk in s.split(",")
     ))
-    selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + skills_list)
+    selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + skills)
 
     filtered_df = df.copy()
     if selected_city != "All":
@@ -89,29 +88,28 @@ if st.session_state["job_data"] is not None:
         filtered_df = filtered_df[filtered_df["Skills"].str.contains(selected_skill)]
 
     st.success(f"Showing {len(filtered_df)} jobs after filtering.")
-    st.markdown("### 📋 Filtered Job Listings")
+    st.markdown("### 📋 Job Listings")
     st.write(filtered_df.to_markdown(index=False), unsafe_allow_html=True)
 
-    # ------------------ Charts ------------------
     if not filtered_df.empty:
-        st.markdown("## 📊 Job Market Insights")
+        st.markdown("## 📊 Job Insights")
 
         top_cities = filtered_df["Location"].value_counts().head(10)
         fig1, ax1 = plt.subplots(figsize=(8, 5))
         sns.barplot(x=top_cities.values, y=top_cities.index, ax=ax1, palette="coolwarm")
-        ax1.set_title("Top Locations")
+        ax1.set_title("Top Job Locations")
         st.pyplot(fig1)
 
         top_titles = filtered_df["Job Title"].value_counts().head(10)
         fig2, ax2 = plt.subplots(figsize=(8, 5))
         sns.barplot(x=top_titles.values, y=top_titles.index, ax=ax2, palette="Blues_d")
-        ax2.set_title("Top Job Titles")
+        ax2.set_title("Most Common Job Titles")
         st.pyplot(fig2)
 
         top_companies = filtered_df["Company"].value_counts().head(10)
         fig3, ax3 = plt.subplots(figsize=(8, 5))
         sns.barplot(x=top_companies.values, y=top_companies.index, ax=ax3, palette="crest")
-        ax3.set_title("Top Companies")
+        ax3.set_title("Top Companies Hiring")
         st.pyplot(fig3)
     else:
-        st.warning("No data available after filtering.")
+        st.warning("No data to visualize.")
