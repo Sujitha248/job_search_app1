@@ -3,76 +3,71 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from bs4 import BeautifulSoup
 from datetime import datetime
 from prophet import Prophet
 import os
 
-# Streamlit Setup
-st.set_page_config(page_title="India Job Skill Finder", layout="wide")
-st.title("💼 Real-Time Job Search with Skills & Trends (WorkIndia + Jobicy)")
+st.set_page_config(page_title="Job Skill Finder - India", layout="wide")
+st.title("💼 Real-Time Job Search with Skills & Trends (WorkIndia)")
 
-# Session State Init
+# Initialize session
 if "job_data" not in st.session_state:
     st.session_state["job_data"] = None
 
 # User Input
-st.markdown("## 🔍 Enter Search Criteria")
-job_title = st.text_input("Job Title:", "Software Engineer")
+st.markdown("Enter Search Criteria")
+job_title = st.text_input("Job Title:", "Data Scientist")
 location = st.text_input("Location:", "India")
+
+st.markdown("Optional Filters")
 skill = st.text_input("Required Skill (optional):", "")
+experience = st.selectbox("Experience Level (Years):", ["", "0", "1", "2", "3", "4", "5+"])
+salary = st.selectbox("Minimum Salary (LPA):", ["", "2", "4", "6", "10", "15"])
 
 # Scraper Function
-def fetch_jobs(job_title):
-    job_results = []
-
-    # Jobicy API
+def scrape_workindia(query):
+    jobs = []
     try:
-        jobicy_url = f"https://jobicy.com/api/v2/remote-jobs?search={job_title}"
-        response = requests.get(jobicy_url)
-        data = response.json()
-        for job in data.get("jobs", []):
-            job_results.append({
-                "Job Title": job.get("title", "N/A"),
-                "Company": job.get("company", "N/A"),
-                "Location": job.get("location", "Remote"),
-                "Experience": "N/A",
-                "Salary": job.get("salary", "N/A"),
-                "Posted": job.get("posted", datetime.today().strftime("%Y-%m-%d")),
-                "Skills": skill if skill else "N/A",
-                "Apply Link": job.get("url", "N/A")
-            })
-    except Exception as e:
-        st.warning(f"Jobicy scraping failed: {e}")
-
-    # WorkIndia Scraping
-    try:
+        url = "https://www.workindia.in/jobs-search/search.php"
+        params = {"q": query}
         headers = {"User-Agent": "Mozilla/5.0"}
-        html = requests.get("https://www.workindia.in/jobs/", headers=headers).text
-        df = pd.read_html(html)[0]
-        for _, row in df.iterrows():
-            job_results.append({
-                "Job Title": row.get("Job Title", "N/A"),
-                "Company": row.get("Company Name", "N/A"),
-                "Location": row.get("Location", "India"),
-                "Experience": "N/A",
-                "Salary": row.get("Salary", "N/A"),
-                "Posted": datetime.today().strftime("%Y-%m-%d"),
+        r = requests.get(url, params=params, headers=headers)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        listings = soup.find_all("div", class_="job-container")
+        for post in listings:
+            title = post.find("h2").text.strip() if post.find("h2") else "N/A"
+            company = post.find("p", class_="company").text.strip() if post.find("p", class_="company") else "N/A"
+            loc = post.find("p", class_="location").text.strip() if post.find("p", class_="location") else "Not Specified"
+            exp = post.find("p", class_="experience").text.strip() if post.find("p", class_="experience") else "N/A"
+            sal = post.find("p", class_="salary").text.strip() if post.find("p", class_="salary") else "N/A"
+            link_tag = post.find("a", href=True)
+            link = "https://www.workindia.in" + link_tag['href'] if link_tag else "N/A"
+            posted = datetime.today().strftime("%Y-%m-%d")
+
+            jobs.append({
+                "Job Title": title,
+                "Company": company,
+                "Location": loc,
+                "Experience": exp,
+                "Salary": sal,
+                "Posted": posted,
                 "Skills": skill if skill else "N/A",
-                "Apply Link": "https://www.workindia.in/jobs/"
+                "Apply Link": link
             })
     except Exception as e:
-        st.warning(f"WorkIndia scraping failed: {e}")
-
-    return job_results
+        st.error(f"Error fetching jobs: {e}")
+    return jobs
 
 # Job Search
-if st.button("🔍 Search Jobs"):
-    with st.spinner("Fetching jobs..."):
-        jobs = fetch_jobs(job_title)
+if st.button("Search Jobs"):
+    with st.spinner("Scraping jobs from WorkIndia..."):
+        jobs = scrape_workindia(job_title)
         if jobs:
             df = pd.DataFrame(jobs)
-            df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce").dt.date
-            df["Apply Link"] = df["Apply Link"].apply(lambda x: f"[Apply]({x})")
+            df["Posted"] = pd.to_datetime(df["Posted"], errors='coerce').dt.date
+            df['Apply Link'] = df['Apply Link'].apply(lambda x: f"[Apply]({x})")
             st.session_state["job_data"] = df.copy()
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             df.to_csv(fallback_path, index=False)
@@ -80,19 +75,19 @@ if st.button("🔍 Search Jobs"):
         else:
             st.warning("😕 No jobs found.")
 
-# Filter & Display
+# Display and Filters
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
-    st.markdown("## 🎛 Filter Results")
+    st.markdown("Filter Results")
     cities = sorted(df["Location"].dropna().unique())
-    selected_city = st.selectbox("📍 Filter by City:", ["All"] + cities)
+    selected_city = st.selectbox("Filter by City:", ["All"] + cities)
 
     skills_list = sorted(set(
         sk.strip() for s in df["Skills"] if s != "N/A"
         for sk in s.split(",")
     ))
-    selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + skills_list)
+    selected_skill = st.selectbox("Filter by Skill:", ["All"] + skills_list)
 
     filtered_df = df.copy()
     if selected_city != "All":
@@ -101,11 +96,11 @@ if st.session_state["job_data"] is not None:
         filtered_df = filtered_df[filtered_df["Skills"].str.contains(selected_skill)]
 
     st.success(f"Showing {len(filtered_df)} jobs after filtering.")
-    st.markdown("### 📋 Filtered Job Listings")
+    st.markdown("Filtered Job Listings")
     st.write(filtered_df.to_markdown(index=False), unsafe_allow_html=True)
 
     if not filtered_df.empty:
-        st.markdown("## 📊 Job Market Insights")
+        st.markdown("Job Market Insights")
 
         top_cities = filtered_df["Location"].value_counts().head(10)
         fig1, ax1 = plt.subplots(figsize=(8, 5))
@@ -131,7 +126,7 @@ if st.session_state["job_data"] is not None:
         ax4.set_title("Job Posting Trend Over Time")
         st.pyplot(fig4)
 
-        st.markdown("## 🔮 Forecast (Next 7 Days)")
+        st.markdown("Forecast (Next 7 Days)")
         prophet_df = trend_df.rename(columns={"Posted": "ds", "Job Count": "y"})
         model = Prophet()
         model.fit(prophet_df)
