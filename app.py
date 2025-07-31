@@ -1,115 +1,60 @@
 import streamlit as st
-import requests
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from bs4 import BeautifulSoup
-from datetime import datetime
 import os
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# ------------------ Streamlit Setup ------------------
-st.set_page_config(page_title="Indeed Job Scraper", layout="wide")
-st.title("💼 Real-Time Job Search (Indeed India)")
+# ------------------- App Config -------------------
+st.set_page_config(page_title="Resume Analyzer & Job Role Recommender", layout="wide")
+st.title("📄 Resume Analyzer + 🔍 Job Role Recommender")
 
-# ------------------ Session Init ------------------
-if "job_data" not in st.session_state:
-    st.session_state["job_data"] = None
-
-# ------------------ User Input ------------------
-st.markdown("## 🔍 Enter Search Criteria")
-job_title = st.text_input("Job Title:", "Data Analyst")
-location = st.text_input("Location:", "India")
-skill = st.text_input("Required Skill (optional):", "")
-
-# ------------------ Scraper Function ------------------
-def scrape_indeed(title, loc):
-    jobs = []
+# ------------------- Load ESCO Dataset -------------------
+@st.cache_data
+def load_occupations(path):
     try:
-        base_url = "https://in.indeed.com"
-        search_url = f"{base_url}/jobs?q={title.replace(' ', '+')}&l={loc.replace(' ', '+')}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(search_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        job_cards = soup.find_all("a", class_="jcs-JobTitle")
-
-        for card in job_cards:
-            parent = card.find_parent("h2", class_="jobTitle")
-            company_span = soup.find("span", {"data-testid": "company-name"})
-            location_div = soup.find("div", {"data-testid": "text-location"})
-
-            jobs.append({
-                "Job Title": card.text.strip() if card else "N/A",
-                "Company": company_span.text.strip() if company_span else "N/A",
-                "Location": location_div.text.strip() if location_div else "N/A",
-                "Posted": datetime.today().strftime("%Y-%m-%d"),
-                "Skills": skill if skill else "N/A",
-                "Apply Link": base_url + card["href"] if card and card.has_attr("href") else "N/A"
-            })
+        df = pd.read_csv(path)
+        df = df[['preferredLabel', 'description']]
+        df = df.dropna()
+        df = df.drop_duplicates()
+        df.rename(columns={'preferredLabel': 'Job Title', 'description': 'Description'}, inplace=True)
+        return df
     except Exception as e:
-        st.error(f"Error fetching jobs: {e}")
-    return jobs
+        st.error(f"Failed to load ESCO data: {e}")
+        return pd.DataFrame()
 
-# ------------------ Job Search ------------------
-if st.button("🔍 Search Jobs"):
-    with st.spinner("Scraping jobs from Indeed..."):
-        job_results = scrape_indeed(job_title, location)
+esco_path = os.path.join("ESCO_dataset", "occupation.csv")
+occupations_df = load_occupations(esco_path)
 
-        if job_results:
-            df = pd.DataFrame(job_results)
-            df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce").dt.date
-            df["Apply Link"] = df["Apply Link"].apply(lambda x: f"[Apply]({x})")
-            st.session_state["job_data"] = df.copy()
+# ------------------- Resume Input -------------------
+st.markdown("### ✨ Paste Your Resume or Skills Below")
+resume_text = st.text_area("Paste your resume content here:", height=250)
 
-            fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
-            df.to_csv(fallback_path, index=False)
-            st.success("✅ Job results updated and fallback saved.")
+# ------------------- Role Matching Function -------------------
+def recommend_roles(resume_text, job_df, top_n=5):
+    if resume_text.strip() == "":
+        return pd.DataFrame()
+
+    docs = job_df['Description'].tolist()
+    docs.insert(0, resume_text)  # First item is resume
+
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(docs)
+    cosine_sim = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])
+
+    job_df['Similarity Score'] = cosine_sim[0]
+    recommended = job_df.sort_values(by='Similarity Score', ascending=False).head(top_n)
+    return recommended
+
+# ------------------- Show Recommendations -------------------
+if st.button("🔍 Analyze & Recommend Roles"):
+    with st.spinner("Analyzing your resume..."):
+        results = recommend_roles(resume_text, occupations_df, top_n=10)
+        if not results.empty:
+            st.success("✅ Recommended Roles Based on Your Resume")
+            st.dataframe(results[['Job Title', 'Description', 'Similarity Score']])
         else:
-            st.warning("😕 No jobs found.")
+            st.warning("😕 No results found. Please paste valid resume content.")
 
-# ------------------ Display Results ------------------
-if st.session_state["job_data"] is not None:
-    df = st.session_state["job_data"]
-
-    st.markdown("## 🎛 Filter Results")
-    cities = sorted(df["Location"].dropna().unique())
-    selected_city = st.selectbox("📍 Filter by City:", ["All"] + cities)
-
-    skills = sorted(set(
-        sk.strip() for s in df["Skills"] if s != "N/A"
-        for sk in s.split(",")
-    ))
-    selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + skills)
-
-    filtered_df = df.copy()
-    if selected_city != "All":
-        filtered_df = filtered_df[filtered_df["Location"] == selected_city]
-    if selected_skill != "All":
-        filtered_df = filtered_df[filtered_df["Skills"].str.contains(selected_skill)]
-
-    st.success(f"Showing {len(filtered_df)} jobs after filtering.")
-    st.markdown("### 📋 Job Listings")
-    st.write(filtered_df.to_markdown(index=False), unsafe_allow_html=True)
-
-    if not filtered_df.empty:
-        st.markdown("## 📊 Job Insights")
-
-        top_cities = filtered_df["Location"].value_counts().head(10)
-        fig1, ax1 = plt.subplots(figsize=(8, 5))
-        sns.barplot(x=top_cities.values, y=top_cities.index, ax=ax1, palette="coolwarm")
-        ax1.set_title("Top Job Locations")
-        st.pyplot(fig1)
-
-        top_titles = filtered_df["Job Title"].value_counts().head(10)
-        fig2, ax2 = plt.subplots(figsize=(8, 5))
-        sns.barplot(x=top_titles.values, y=top_titles.index, ax=ax2, palette="Blues_d")
-        ax2.set_title("Most Common Job Titles")
-        st.pyplot(fig2)
-
-        top_companies = filtered_df["Company"].value_counts().head(10)
-        fig3, ax3 = plt.subplots(figsize=(8, 5))
-        sns.barplot(x=top_companies.values, y=top_companies.index, ax=ax3, palette="crest")
-        ax3.set_title("Top Companies Hiring")
-        st.pyplot(fig3)
-    else:
-        st.warning("No data to visualize.")
+# ------------------- Footer -------------------
+st.markdown("---")
+st.caption("Built using ESCO job classification dataset | Developed in Streamlit 🔥")
