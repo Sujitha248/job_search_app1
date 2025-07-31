@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import os
 import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import seaborn as sns
-import PyPDF2
-from io import StringIO
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from wordcloud import WordCloud
+import PyPDF2
+import nltk
+nltk.download('punkt')
 
 # ----------------- App Config -----------------
 st.set_page_config(page_title="Resume Analyzer + Role Recommender", layout="wide")
@@ -19,36 +20,28 @@ st.title("📄 Resume Analyzer & Role Recommender")
 def load_data():
     occ_df = pd.read_csv("ESCO_dataset/occupations_en.csv")
     sk_df = pd.read_csv("ESCO_dataset/skills_en.csv")
-    rel_df = pd.read_csv("ESCO_dataset/occupationSkillRelations_en.csv")
+    rel_df = pd.read_csv("ESCO_dataset/occupationSkillRelations.csv")
     return occ_df, sk_df, rel_df
 
 occupations_df, skills_df, relations_df = load_data()
 
-# ----------------- Resume Upload -----------------
-st.markdown("### 📤 Upload Your Resume")
-uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
+# ----------------- Upload Resume -----------------
+st.markdown("### 📤 Upload Your Resume (.txt or .pdf)")
+uploaded_file = st.file_uploader("Upload File", type=["txt", "pdf"])
 
 resume_text = ""
-
-if uploaded_file is not None:
+if uploaded_file:
     if uploaded_file.type == "application/pdf":
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        for page in pdf_reader.pages:
+        reader = PyPDF2.PdfReader(uploaded_file)
+        for page in reader.pages:
             resume_text += page.extract_text()
-    elif uploaded_file.type == "text/plain":
-        stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
-        resume_text = stringio.read()
-
-# Optional manual text input
-st.markdown("### ✏ Or Paste Your Resume Text")
-resume_input = st.text_area("Paste Resume Text:", height=250)
-if resume_input:
-    resume_text = resume_input
+    else:
+        resume_text = uploaded_file.read().decode("utf-8")
 
 if resume_text:
-    # ----------------- Preprocess -----------------
+    # ----------------- Preprocess Resume -----------------
     def preprocess(text):
-        text = re.sub(r"[^a-zA-Z0-9 ]", "", text)
+        text = re.sub(r"[^a-zA-Z0-9 ]", " ", text)
         return text.lower()
 
     clean_resume = preprocess(resume_text)
@@ -58,24 +51,21 @@ if resume_text:
     occ_vectors = tfidf.fit_transform(occupations_df['preferredLabel'].astype(str))
     resume_vec = tfidf.transform([clean_resume])
     similarity = cosine_similarity(resume_vec, occ_vectors).flatten()
-
     occupations_df['Similarity'] = similarity
-    top_matches = occupations_df.sort_values(by='Similarity', ascending=False).head(10)
+    top_roles = occupations_df.sort_values(by='Similarity', ascending=False).head(5)
 
     st.markdown("### 🎯 Top Recommended Job Roles")
-    st.dataframe(top_matches[['preferredLabel', 'description', 'Similarity']].rename(columns={
+    st.table(top_roles[['preferredLabel', 'description']].rename(columns={
         'preferredLabel': 'Job Title',
         'description': 'Job Description'
     }))
 
-    # ----------------- Skill Matching -----------------
-    matched_skills = set()
-    resume_words = set(clean_resume.split())
-
-    for skill in skills_df['preferredLabel'].dropna().unique():
-        skill_words = set(skill.lower().split())
-        if resume_words & skill_words:
-            matched_skills.add(skill)
+    # ----------------- Skills in Resume -----------------
+    resume_tokens = set(clean_resume.split())
+    matched_skills = {
+        skill for skill in skills_df['preferredLabel'].dropna().unique()
+        if any(word in skill.lower() for word in resume_tokens)
+    }
 
     st.markdown("### ✅ Skills Found in Resume")
     if matched_skills:
@@ -84,62 +74,49 @@ if resume_text:
         st.warning("No matching skills found.")
 
     # ----------------- Skill Gap Analysis -----------------
-    st.markdown("### ❌ Missing Recommended Skills")
     recommended_skills = set()
-    for occ in top_matches['conceptUri']:
-        skill_links = relations_df[relations_df['occupationUri'] == occ]
-        skill_uris = skill_links['skillUri'].unique()
-        skills_for_occ = skills_df[skills_df['conceptUri'].isin(skill_uris)]
-        recommended_skills.update(skills_for_occ['preferredLabel'].dropna().tolist())
+    for uri in top_roles['conceptUri']:
+        related_skills = relations_df[relations_df['occupationUri'] == uri]['skillUri']
+        skill_names = skills_df[skills_df['conceptUri'].isin(related_skills)]['preferredLabel'].tolist()
+        recommended_skills.update(skill_names)
 
     missing_skills = recommended_skills - matched_skills
+    st.markdown("### ❌ Missing Recommended Skills")
     if missing_skills:
         st.error(", ".join(sorted(missing_skills)))
     else:
-        st.success("Great! You seem to have the recommended skills.")
+        st.success("You have all the recommended skills!")
 
     # ----------------- Course Suggestions -----------------
-    st.markdown("### 📚 Suggested Courses for Missing Skills")
+    st.markdown("### 📚 Course Suggestions for Missing Skills")
     for skill in list(missing_skills)[:5]:
         st.markdown(f"- [Learn {skill} on Coursera](https://www.coursera.org/search?query={skill})")
 
     # ----------------- Skill Frequency Chart -----------------
-    st.markdown("### 📊 Skill Frequency Chart")
-    resume_skill_counts = {s: resume_text.lower().count(s.lower()) for s in matched_skills}
-    skill_df = pd.DataFrame(list(resume_skill_counts.items()), columns=['Skill', 'Frequency']).sort_values(by='Frequency', ascending=False)
-
-    if not skill_df.empty:
+    st.markdown("### 📊 Skill Frequency in Resume")
+    skill_counts = {s: resume_text.lower().count(s.lower()) for s in matched_skills}
+    if skill_counts:
+        df_freq = pd.DataFrame(list(skill_counts.items()), columns=["Skill", "Frequency"]).sort_values(by="Frequency", ascending=False)
         fig, ax = plt.subplots(figsize=(8, 4))
-        sns.barplot(data=skill_df, x='Frequency', y='Skill', ax=ax, palette='magma')
-        ax.set_title("Skill Mentions in Resume")
+        sns.barplot(data=df_freq, x="Frequency", y="Skill", palette="viridis", ax=ax)
+        ax.set_title("Skill Frequency")
         st.pyplot(fig)
 
-    # ----------------- Word Cloud -----------------
+    # ----------------- Resume Word Cloud -----------------
     st.markdown("### ☁ Resume Word Cloud")
-    wordcloud = WordCloud(width=800, height=300, background_color="white").generate(clean_resume)
-    fig_wc, ax_wc = plt.subplots(figsize=(10, 4))
-    ax_wc.imshow(wordcloud, interpolation="bilinear")
-    ax_wc.axis("off")
-    st.pyplot(fig_wc)
+    wordcloud = WordCloud(width=800, height=300, background_color='white').generate(clean_resume)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.imshow(wordcloud, interpolation='bilinear')
+    ax.axis('off')
+    st.pyplot(fig)
 
-    # ----------------- Resume Tips -----------------
-    st.markdown("### 🤖 Resume Writing Tips")
-    st.info("✅ Use strong action verbs like 'Designed', 'Implemented', 'Optimized'.")
-    st.info("✅ Highlight quantifiable achievements: 'Improved performance by 25%'.")
-    st.info("✅ Customize your resume to match the job you're applying for.")
-
-    # ----------------- Industry Tags -----------------
-    st.markdown("### 🏢 Suggested Industries")
-    industry_tags = []
-    if 'python' in clean_resume:
-        industry_tags.append('Software / IT')
-    if 'data' in clean_resume:
-        industry_tags.append('Analytics / Research')
-    if 'marketing' in clean_resume:
-        industry_tags.append('Marketing / Digital')
-    if industry_tags:
-        st.success(", ".join(set(industry_tags)))
+    # ----------------- Suggested Industry -----------------
+    st.markdown("### 🏢 Suggested Industry Tags")
+    tags = []
+    if 'python' in clean_resume: tags.append("Software / IT")
+    if 'machine learning' in clean_resume or 'data' in clean_resume: tags.append("Data Science / AI")
+    if 'marketing' in clean_resume: tags.append("Marketing / Digital")
+    if tags:
+        st.success("Industry Tags: " + ", ".join(tags))
     else:
-        st.info("Add more domain-specific terms to get industry suggestions.")
-else:
-    st.info("Please upload or paste your resume to get started.")
+        st.info("Try including domain-specific keywords for better industry suggestion.")
