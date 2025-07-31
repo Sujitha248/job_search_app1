@@ -1,60 +1,76 @@
 import streamlit as st
 import pandas as pd
 import os
+import difflib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ------------------- App Config -------------------
-st.set_page_config(page_title="Resume Analyzer & Job Role Recommender", layout="wide")
-st.title("📄 Resume Analyzer + 🔍 Job Role Recommender")
+# ------------------ Setup ------------------
+st.set_page_config(page_title="Resume Analyzer & Role Recommender", layout="wide")
+st.title("📄 Resume Analyzer & Job Role Recommender")
 
-# ------------------- Load ESCO Dataset -------------------
+# ------------------ Load ESCO Dataset ------------------
 @st.cache_data
-def load_occupations(path):
+def load_esco_data():
     try:
-        df = pd.read_csv(path)
-        df = df[['preferredLabel', 'description']]
-        df = df.dropna()
-        df = df.drop_duplicates()
-        df.rename(columns={'preferredLabel': 'Job Title', 'description': 'Description'}, inplace=True)
+        dataset_path = os.path.join(os.getcwd(), "ESCO_dataset","occupations_en.csv")
+        df = pd.read_csv(dataset_path)
+        df = df[['preferredLabel', 'description', 'code']]
+        df.dropna(subset=["preferredLabel", "description"], inplace=True)
         return df
     except Exception as e:
-        st.error(f"Failed to load ESCO data: {e}")
+        st.error(f"Error loading ESCO dataset: {e}")
         return pd.DataFrame()
 
-esco_path = os.path.join("ESCO_dataset","occupations_en.csv")
-occupations_df = load_occupations(esco_path)
+esco_df = load_esco_data()
 
-# ------------------- Resume Input -------------------
-st.markdown("### ✨ Paste Your Resume or Skills Below")
-resume_text = st.text_area("Paste your resume content here:", height=250)
+# ------------------ Input Resume ------------------
+st.markdown("## 📝 Upload or Paste Your Resume")
 
-# ------------------- Role Matching Function -------------------
-def recommend_roles(resume_text, job_df, top_n=5):
-    if resume_text.strip() == "":
-        return pd.DataFrame()
+upload_option = st.radio("Choose input method:", ("Upload .txt file", "Paste text manually"))
 
-    docs = job_df['Description'].tolist()
-    docs.insert(0, resume_text)  # First item is resume
+resume_text = ""
+if upload_option == "Upload .txt file":
+    uploaded_file = st.file_uploader("Upload your resume (.txt only):", type=["txt"])
+    if uploaded_file:
+        resume_text = uploaded_file.read().decode("utf-8")
+else:
+    resume_text = st.text_area("Paste your resume here:")
 
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform(docs)
-    cosine_sim = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])
+# ------------------ Matching & Recommendation ------------------
+def recommend_roles(resume, esco_df, top_n=5):
+    tfidf = TfidfVectorizer(stop_words="english")
+    esco_texts = esco_df["preferredLabel"] + " " + esco_df["description"]
+    tfidf_matrix = tfidf.fit_transform(esco_texts)
+    resume_vec = tfidf.transform([resume])
 
-    job_df['Similarity Score'] = cosine_sim[0]
-    recommended = job_df.sort_values(by='Similarity Score', ascending=False).head(top_n)
-    return recommended
+    similarity = cosine_similarity(resume_vec, tfidf_matrix).flatten()
+    top_indices = similarity.argsort()[-top_n:][::-1]
 
-# ------------------- Show Recommendations -------------------
-if st.button("🔍 Analyze & Recommend Roles"):
+    results = []
+    for idx in top_indices:
+        role = esco_df.iloc[idx]
+        overlap = set(resume.lower().split()) & set(role["description"].lower().split())
+        results.append({
+            "Job Title": role["preferredLabel"],
+            "ESCO Code": role["code"],
+            "Similarity Score (%)": round(similarity[idx] * 100, 2),
+            "Matching Keywords": ", ".join(list(overlap)[:10]),
+            "Description": role["description"]
+        })
+    return results
+
+# ------------------ Display Recommendations ------------------
+if resume_text and not esco_df.empty:
     with st.spinner("Analyzing your resume..."):
-        results = recommend_roles(resume_text, occupations_df, top_n=10)
-        if not results.empty:
-            st.success("✅ Recommended Roles Based on Your Resume")
-            st.dataframe(results[['Job Title', 'Description', 'Similarity Score']])
-        else:
-            st.warning("😕 No results found. Please paste valid resume content.")
+        recommendations = recommend_roles(resume_text, esco_df)
 
-# ------------------- Footer -------------------
-st.markdown("---")
-st.caption("Built using ESCO job classification dataset | Developed in Streamlit 🔥")
+    st.success("✅ Here are the top job roles for your resume:")
+    for rec in recommendations:
+        st.markdown(f"### 🔹 {rec['Job Title']} (ESCO Code: {rec['ESCO Code']})")
+        st.markdown(f"*Similarity Score*: {rec['Similarity Score (%)']}%")
+        st.markdown(f"*Matching Keywords*: {rec['Matching Keywords'] or 'N/A'}")
+        st.markdown(f"*Description*: {rec['Description']}")
+        st.markdown("---")
+elif resume_text:
+    st.warning("ESCO dataset not loaded correctly.")
