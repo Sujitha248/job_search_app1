@@ -42,20 +42,27 @@ def scrape_jobs(query):
         listings = soup.find_all("div", class_="SerpJob-jobCard")
 
         for post in listings:
-            title = post.find("a", class_="SerpJob-linkCard").text.strip() if post.find("a", class_="SerpJob-linkCard") else "N/A"
-            company = post.find("span", class_="JobPosting-labelWithIcon").text.strip() if post.find("span", class_="JobPosting-labelWithIcon") else "N/A"
-            loc = post.find("span", class_="JobPosting-labelWithIcon jobposting-location").text.strip() if post.find("span", class_="JobPosting-labelWithIcon jobposting-location") else "Not Specified"
-            posted = post.find("time")['datetime'] if post.find("time") else datetime.today().isoformat()
-            link = "https://www.simplyhired.co.in" + post.find("a", class_="SerpJob-linkCard")['href'] if post.find("a", class_="SerpJob-linkCard") else "N/A"
+            title_tag = post.find("a", class_="SerpJob-linkCard")
+            title = title_tag.text.strip() if title_tag else "N/A"
+            link = "https://www.simplyhired.co.in" + title_tag['href'] if title_tag else "N/A"
+
+            company_tag = post.find("span", class_="JobPosting-labelWithIcon")
+            company = company_tag.text.strip() if company_tag else "N/A"
+
+            location_tag = post.find("span", class_="jobposting-location")
+            location = location_tag.text.strip() if location_tag else "Not Specified"
+
+            posted_tag = post.find("time")
+            posted = posted_tag["datetime"] if posted_tag and posted_tag.has_attr("datetime") else datetime.today().isoformat()
+
             jobs.append({
                 "Job Title": title,
                 "Company": company,
-                "Location": loc,
+                "Location": location,
                 "Posted": posted[:10],
                 "Skills": "N/A",
                 "Apply Link": link
             })
-
     except Exception as e:
         st.error(f"Scraping failed: {e}")
     return jobs
