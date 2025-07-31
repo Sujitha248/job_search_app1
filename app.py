@@ -7,72 +7,80 @@ from datetime import datetime
 from prophet import Prophet
 import os
 
-# ------------------ Streamlit Setup ------------------
-st.set_page_config(page_title="Job Skill Finder - India", layout="wide")
-st.title("💼 Real-Time Job Search with Skills & Trends (Remotive API)")
+# Streamlit Setup
+st.set_page_config(page_title="India Job Skill Finder", layout="wide")
+st.title("💼 Real-Time Job Search with Skills & Trends (WorkIndia + Jobicy)")
 
-# ------------------ Session State Init ------------------
+# Session State Init
 if "job_data" not in st.session_state:
     st.session_state["job_data"] = None
 
-# ------------------ User Input ------------------
+# User Input
 st.markdown("## 🔍 Enter Search Criteria")
-job_title = st.text_input("Job Title:", "Data Scientist")
+job_title = st.text_input("Job Title:", "Software Engineer")
 location = st.text_input("Location:", "India")
-
-st.markdown("### 🎯 Optional Filters")
 skill = st.text_input("Required Skill (optional):", "")
-category = st.selectbox("Category:", ["", "Software Development", "Marketing", "Design", "Sales", "Customer Service"])
 
-# ------------------ Job Fetching Function ------------------
-def fetch_jobs_remotive(title, category):
-    jobs = []
+# Scraper Function
+def fetch_jobs(job_title):
+    job_results = []
+
+    # Jobicy API
     try:
-        url = "https://remotive.io/api/remote-jobs"
-        params = {}
-        if title:
-            params["search"] = title
-        if category:
-            params["category"] = category.lower().replace(" ", "-")
-
-        response = requests.get(url, params=params)
+        jobicy_url = f"https://jobicy.com/api/v2/remote-jobs?search={job_title}"
+        response = requests.get(jobicy_url)
         data = response.json()
-
         for job in data.get("jobs", []):
-            jobs.append({
+            job_results.append({
                 "Job Title": job.get("title", "N/A"),
-                "Company": job.get("company_name", "N/A"),
-                "Location": job.get("candidate_required_location", "Remote"),
+                "Company": job.get("company", "N/A"),
+                "Location": job.get("location", "Remote"),
                 "Experience": "N/A",
                 "Salary": job.get("salary", "N/A"),
-                "Posted": job.get("publication_date", "")[:10],
+                "Posted": job.get("posted", datetime.today().strftime("%Y-%m-%d")),
                 "Skills": skill if skill else "N/A",
                 "Apply Link": job.get("url", "N/A")
             })
-
     except Exception as e:
-        st.error(f"Error fetching jobs: {e}")
-    return jobs
+        st.warning(f"Jobicy scraping failed: {e}")
 
-# ------------------ Job Search ------------------
+    # WorkIndia Scraping
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        html = requests.get("https://www.workindia.in/jobs/", headers=headers).text
+        df = pd.read_html(html)[0]
+        for _, row in df.iterrows():
+            job_results.append({
+                "Job Title": row.get("Job Title", "N/A"),
+                "Company": row.get("Company Name", "N/A"),
+                "Location": row.get("Location", "India"),
+                "Experience": "N/A",
+                "Salary": row.get("Salary", "N/A"),
+                "Posted": datetime.today().strftime("%Y-%m-%d"),
+                "Skills": skill if skill else "N/A",
+                "Apply Link": "https://www.workindia.in/jobs/"
+            })
+    except Exception as e:
+        st.warning(f"WorkIndia scraping failed: {e}")
+
+    return job_results
+
+# Job Search
 if st.button("🔍 Search Jobs"):
-    with st.spinner("Fetching jobs from Remotive..."):
-        jobs = fetch_jobs_remotive(job_title, category)
-
+    with st.spinner("Fetching jobs..."):
+        jobs = fetch_jobs(job_title)
         if jobs:
             df = pd.DataFrame(jobs)
             df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce").dt.date
             df["Apply Link"] = df["Apply Link"].apply(lambda x: f"[Apply]({x})")
             st.session_state["job_data"] = df.copy()
-
-            # Save fallback
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             df.to_csv(fallback_path, index=False)
             st.success("✅ Job results updated and fallback saved.")
         else:
             st.warning("😕 No jobs found.")
 
-# ------------------ Display and Insights ------------------
+# Filter & Display
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
@@ -86,7 +94,6 @@ if st.session_state["job_data"] is not None:
     ))
     selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + skills_list)
 
-    # Filters
     filtered_df = df.copy()
     if selected_city != "All":
         filtered_df = filtered_df[filtered_df["Location"] == selected_city]
