@@ -22,7 +22,7 @@ def load_occupations(path):
         st.error(f"Failed to load ESCO data: {e}")
         return pd.DataFrame()
 
-esco_path = os.path.join("ESCO_dataset","occupation_en.csv")
+esco_path = os.path.join("ESCO_dataset","occupations_en.csv")
 occupations_df = load_occupations(esco_path)
 
 # ------------------- Resume Input -------------------
