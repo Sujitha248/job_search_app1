@@ -50,9 +50,9 @@ def scrape_jobicy(query):
                     "Skills": skill if skill else "N/A", 
                     "Apply Link": job["url"] 
                     }) 
-        except Exception as e: 
-            st.error(f"Jobicy scraping failed: {e}") 
-        return jobs
+    except Exception as e: 
+        st.error(f"Jobicy scraping failed: {e}") 
+    return jobs
 
 def scrape_remotive(query): 
     jobs = [] 
@@ -73,9 +73,9 @@ def scrape_remotive(query):
                     "Skills": skill if skill else "N/A", 
                     "Apply Link": job["url"] 
                     }) 
-        except Exception as e: 
-            st.error(f"Remotive scraping failed: {e}") 
-        return jobs
+    except Exception as e: 
+        st.error(f"Remotive scraping failed: {e}") 
+    return jobs
 
 #------------------ Job Search ------------------
 
