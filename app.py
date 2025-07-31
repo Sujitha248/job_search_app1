@@ -1,76 +1,117 @@
 import streamlit as st
 import pandas as pd
 import os
-import difflib
+import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# ------------------ Setup ------------------
-st.set_page_config(page_title="Resume Analyzer & Role Recommender", layout="wide")
-st.title("📄 Resume Analyzer & Job Role Recommender")
+# ----------------- App Config -----------------
+st.set_page_config(page_title="Resume Analyzer + Role Recommender", layout="wide")
+st.title("📄 Resume Analyzer & Role Recommender")
 
-# ------------------ Load ESCO Dataset ------------------
+# ----------------- Load ESCO Dataset -----------------
 @st.cache_data
-def load_esco_data():
-    try:
-        dataset_path = os.path.join(os.getcwd(), "ESCO_dataset","occupations_en.csv")
-        df = pd.read_csv(dataset_path)
-        df = df[['preferredLabel', 'description', 'code']]
-        df.dropna(subset=["preferredLabel", "description"], inplace=True)
-        return df
-    except Exception as e:
-        st.error(f"Error loading ESCO dataset: {e}")
-        return pd.DataFrame()
+def load_data():
+    occ_df = pd.read_csv("ESCO_dataset/occupations_en.csv")
+    sk_df = pd.read_csv("ESCO_dataset/skills_en.csv")
+    rel_df = pd.read_csv("ESCO_dataset/occupationSkillRelations_en.csv")
+    return occ_df, sk_df, rel_df
 
-esco_df = load_esco_data()
+occupations_df, skills_df, relations_df = load_data()
 
-# ------------------ Input Resume ------------------
-st.markdown("## 📝 Upload or Paste Your Resume")
+# ----------------- Resume Upload -----------------
+st.markdown("### 📤 Upload your Resume (Text Format)")
+resume_text = st.text_area("Paste Resume Text Here:", height=250)
 
-upload_option = st.radio("Choose input method:", ("Upload .txt file", "Paste text manually"))
+if resume_text:
+    # Preprocess resume
+    def preprocess(text):
+        text = re.sub(r"[^a-zA-Z0-9 ]", "", text)
+        return text.lower()
 
-resume_text = ""
-if upload_option == "Upload .txt file":
-    uploaded_file = st.file_uploader("Upload your resume (.txt only):", type=["txt"])
-    if uploaded_file:
-        resume_text = uploaded_file.read().decode("utf-8")
-else:
-    resume_text = st.text_area("Paste your resume here:")
+    clean_resume = preprocess(resume_text)
 
-# ------------------ Matching & Recommendation ------------------
-def recommend_roles(resume, esco_df, top_n=5):
-    tfidf = TfidfVectorizer(stop_words="english")
-    esco_texts = esco_df["preferredLabel"] + " " + esco_df["description"]
-    tfidf_matrix = tfidf.fit_transform(esco_texts)
-    resume_vec = tfidf.transform([resume])
+    # Match with occupations
+    tfidf = TfidfVectorizer(stop_words='english')
+    occ_vectors = tfidf.fit_transform(occupations_df['preferredLabel'].astype(str))
+    resume_vec = tfidf.transform([clean_resume])
+    similarity = cosine_similarity(resume_vec, occ_vectors).flatten()
+    occupations_df['Similarity'] = similarity
+    top_matches = occupations_df.sort_values(by='Similarity', ascending=False).head(10)
 
-    similarity = cosine_similarity(resume_vec, tfidf_matrix).flatten()
-    top_indices = similarity.argsort()[-top_n:][::-1]
+    st.markdown("### 🎯 Top Recommended Job Roles")
+    st.dataframe(top_matches[['preferredLabel', 'description', 'Similarity']].rename(columns={
+        'preferredLabel': 'Job Title',
+        'description': 'Job Description'
+    }))
 
-    results = []
-    for idx in top_indices:
-        role = esco_df.iloc[idx]
-        overlap = set(resume.lower().split()) & set(role["description"].lower().split())
-        results.append({
-            "Job Title": role["preferredLabel"],
-            "ESCO Code": role["code"],
-            "Similarity Score (%)": round(similarity[idx] * 100, 2),
-            "Matching Keywords": ", ".join(list(overlap)[:10]),
-            "Description": role["description"]
-        })
-    return results
+    # ----------------- Skill Highlight -----------------
+    matched_skills = set()
+    resume_words = clean_resume.split()
+    for skill in skills_df['preferredLabel'].dropna().unique():
+        if any(word in skill.lower() for word in resume_words):
+            matched_skills.add(skill)
 
-# ------------------ Display Recommendations ------------------
-if resume_text and not esco_df.empty:
-    with st.spinner("Analyzing your resume..."):
-        recommendations = recommend_roles(resume_text, esco_df)
+    st.markdown("### ✅ Skills Found in Resume")
+    if matched_skills:
+        st.write(", ".join(matched_skills))
+    else:
+        st.warning("No matching skills found.")
 
-    st.success("✅ Here are the top job roles for your resume:")
-    for rec in recommendations:
-        st.markdown(f"### 🔹 {rec['Job Title']} (ESCO Code: {rec['ESCO Code']})")
-        st.markdown(f"*Similarity Score*: {rec['Similarity Score (%)']}%")
-        st.markdown(f"*Matching Keywords*: {rec['Matching Keywords'] or 'N/A'}")
-        st.markdown(f"*Description*: {rec['Description']}")
-        st.markdown("---")
-elif resume_text:
-    st.warning("ESCO dataset not loaded correctly.")
+    # ----------------- Skill Gap Analysis -----------------
+    st.markdown("### ❌ Missing Recommended Skills")
+    recommended_skills = set()
+    for occ in top_matches['conceptUri']:
+        skills_for_occ = relations_df[relations_df['originUri'] == occ]
+        skill_names = skills_df[skills_df['conceptUri'].isin(skills_for_occ['targetUri'])]['preferredLabel'].tolist()
+        recommended_skills.update(skill_names)
+
+    missing_skills = recommended_skills - matched_skills
+    if missing_skills:
+        st.error(", ".join(missing_skills))
+
+    # ----------------- Course Suggestions -----------------
+    st.markdown("### 📚 Suggested Courses for Missing Skills")
+    for skill in list(missing_skills)[:5]:
+        st.markdown(f"- [Learn {skill} on Coursera](https://www.coursera.org/search?query={skill})")
+
+    # ----------------- Skill Frequency Chart -----------------
+    st.markdown("### 📊 Skill Frequency Chart in Resume")
+    resume_skill_counts = {s: resume_text.lower().count(s.lower()) for s in matched_skills}
+    skill_df = pd.DataFrame(list(resume_skill_counts.items()), columns=['Skill', 'Frequency']).sort_values(by='Frequency', ascending=False)
+    if not skill_df.empty:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        sns.barplot(data=skill_df, x='Frequency', y='Skill', ax=ax, palette='viridis')
+        ax.set_title("Skill Mentions in Resume")
+        st.pyplot(fig)
+
+    # ----------------- ChatGPT Resume Tips -----------------
+    st.markdown("### 🤖 AI Resume Tips")
+    st.info("✅ Tip: Use action verbs like 'Developed', 'Implemented', 'Led', etc.")
+    st.info("✅ Tip: Quantify your achievements (e.g., 'Increased sales by 20%').")
+    st.info("✅ Tip: Tailor your resume for each job role.")
+
+    # ----------------- Project Suggestions -----------------
+    st.markdown("### 💡 Suggested Projects to Add")
+    if 'data' in clean_resume:
+        st.write("- Build a real-time dashboard using Streamlit")
+        st.write("- Predict stock prices using ML")
+    if 'web' in clean_resume:
+        st.write("- Create a portfolio website using HTML/CSS/JS")
+        st.write("- Develop a RESTful API using Flask")
+
+    # ----------------- Industry Tagging -----------------
+    st.markdown("### 🏢 Suggested Industries")
+    industry_tags = []
+    if 'python' in clean_resume:
+        industry_tags.append('Software / IT')
+    if 'data' in clean_resume:
+        industry_tags.append('Analytics / Research')
+    if 'marketing' in clean_resume:
+        industry_tags.append('Marketing / Digital')
+    if industry_tags:
+        st.success(", ".join(set(industry_tags)))
+    else:
+        st.info("Couldn't detect specific industry. Try adding more domain-specific keywords.")
