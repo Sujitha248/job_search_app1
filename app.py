@@ -3,53 +3,13 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from bs4 import BeautifulSoup
+from datetime import datetime
 from prophet import Prophet
 import os
-import platform
-from github import Github
 
-FALLBACK_FILE = "fallback_jobs.csv"
-
-def save_fallback(df):
-    try:
-        df.to_csv(FALLBACK_FILE, index=False)
-        st.success(f"Fallback file saved ")
-        upload_to_github(FALLBACK_FILE)
-    except Exception as e:
-        st.error(f"Error saving fallback file: {e}")
-
-def load_fallback():
-    try:
-        if os.path.exists(FALLBACK_FILE):
-            return pd.read_csv(FALLBACK_FILE)
-        else:
-            st.warning("No fallback file found yet.")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error loading fallback file: {e}")
-        return pd.DataFrame()
-
-def upload_to_github(file_path, commit_message="Update fallback CSV"):
-    try:
-        token = st.secrets["GITHUB_TOKEN"]
-        repo_name = st.secrets["GITHUB_REPO"]
-        gh = Github(token)
-        repo = gh.get_repo(repo_name)
-
-        with open(file_path, "r", encoding="utf-8") as file:
-            content = file.read()
-
-        try:
-            existing = repo.get_contents("fallback_jobs.csv")
-            repo.update_file("fallback_jobs.csv", commit_message, content, existing.sha)
-        except:
-            repo.create_file("fallback_jobs.csv", commit_message, content)
-
-        st.success("📤")
-    except Exception as e:
-        st.error(f"GitHub upload failed: {e}")
 # ------------------ Streamlit Setup ------------------
-st.set_page_config(page_title="Real-Time Job Explorer", layout="wide")
+st.set_page_config(page_title="Job Explorer", layout="wide")
 st.title("💼 Real-Time Job Explorer")
 
 # ------------------ Session State Init ------------------
@@ -63,89 +23,60 @@ location = st.text_input("Location:", "India")
 
 st.markdown("### 🎯 Optional Filters")
 skill = st.text_input("Required Skill (optional):", "")
-experience = st.selectbox("Experience Level:", ["", "Internship", "Entry level", "Mid-Senior level", "Director"])
+experience = st.selectbox("Experience Level:", ["", "Entry level", "Mid-Senior level", "Manager", "Director"])
 industry = st.text_input("Industry (optional):", "")
+
+# ------------------ Scrape Function ------------------
+def scrape_jobs(query):
+    jobs = []
+    try:
+        search_query = query.replace(" ", "+")
+        url = f"https://www.simplyhired.co.in/search?q={search_query}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers)
+        soup = BeautifulSoup(r.text, "html.parser")
+        listings = soup.find_all("div", class_="SerpJob-jobCard")
+
+        for post in listings:
+            title = post.find("a", class_="SerpJob-linkCard").text.strip() if post.find("a", class_="SerpJob-linkCard") else "N/A"
+            company = post.find("span", class_="JobPosting-labelWithIcon").text.strip() if post.find("span", class_="JobPosting-labelWithIcon") else "N/A"
+            loc = post.find("span", class_="JobPosting-labelWithIcon jobposting-location").text.strip() if post.find("span", class_="JobPosting-labelWithIcon jobposting-location") else "Not Specified"
+            posted = post.find("time")["datetime"] if post.find("time") else datetime.today().isoformat()
+            link = "https://www.simplyhired.co.in" + post.find("a", class_="SerpJob-linkCard")["href"] if post.find("a", class_="SerpJob-linkCard") else "N/A"
+            jobs.append({
+                "Job Title": title,
+                "Company": company,
+                "Location": loc,
+                "Posted": posted[:10],
+                "Skills": "N/A",
+                "Apply Link": link
+            })
+    except Exception as e:
+        st.error(f"Scraping failed: {e}")
+    return jobs
 
 # ------------------ Search Button ------------------
 if st.button("🔍 Search Jobs"):
-    with st.spinner("Fetching jobs..."):
-        query = f"{job_title} in {location}"
-        if skill:
-            query += f" {skill}"
-        if experience:
-            query += f" {experience}"
-        if industry:
-            query += f" {industry}"
+    with st.spinner("Scraping jobs..."):
+        query = f"{job_title} {location} {skill} {experience} {industry}"
+        jobs = scrape_jobs(query)
 
-        url = "https://jsearch.p.rapidapi.com/search"
-        headers = {
-            "X-RapidAPI-Key": st.secrets["api_key"],  # 🔑 Replace this with your real API Key
-            "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
-        }
-        params = {
-            "query": query,
-            "page": "1",
-            "num_pages": "3"
-        }
-
-        try:
-            response = requests.get(url, headers=headers, params=params)
-
-            if response.status_code == 200:
-                jobs = response.json().get("data", [])
-
-                if jobs:
-                    known_skills = [
-                        "Python", "SQL", "Excel", "Power BI", "Machine Learning",
-                        "Deep Learning", "NLP", "Communication", "Java", "C++",
-                        "AWS", "Azure", "Git", "Tableau", "Teamwork"
-                    ]
-
-                    job_list = []
-                    for job in jobs:
-                        desc = job.get("job_description", "").lower()
-                        found_skills = [s for s in known_skills if s.lower() in desc]
-                        job_list.append({
-                            "Job Title": job.get("job_title"),
-                            "Company": job.get("employer_name"),
-                            "Location": job.get("job_city") if job.get("job_city") else "Not Specified",
-                            "Posted": job.get("job_posted_at_datetime_utc"),
-                            "Skills": ", ".join(found_skills) if found_skills else "N/A",
-                            "Apply Link": job.get("job_apply_link")
-                        })
-
-                    df = pd.DataFrame(job_list)
-                    df["Posted"] = pd.to_datetime(df["Posted"]).dt.date
-                    df['Apply Link'] = df['Apply Link'].apply(lambda x: f"[Apply]({x})")
-                    st.session_state["job_data"] = df.copy()
-
-                    save_fallback(df)
-                else:
-                    st.warning("😕 No jobs found.")
-            else:
-                st.warning("⚠ API Error. Loading fallback data...")
-                fallback_df = load_fallback()
-                if not fallback_df.empty:
-                    fallback_df["Posted"] = pd.to_datetime(fallback_df["Posted"]).dt.date
-                    st.session_state["job_data"] = fallback_df
-                else:
-                    st.error("❌ No fallback data found.")
-        except:
-            st.warning("⚠ API Failed. Using fallback...")
-            fallback_df = load_fallback()
-            if not fallback_df.empty:
-                fallback_df["Posted"] = pd.to_datetime(fallback_df["Posted"]).dt.date
-                st.session_state["job_data"] = fallback_df
-            else:
-                st.error("❌ No fallback data found.")
+        if jobs:
+            df = pd.DataFrame(jobs)
+            df["Posted"] = pd.to_datetime(df["Posted"]).dt.date
+            df['Apply Link'] = df['Apply Link'].apply(lambda x: f"[Apply]({x})")
+            st.session_state["job_data"] = df.copy()
+            fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
+            df.to_csv(fallback_path, index=False)
+            st.success("✅ Job results updated.")
+        else:
+            st.warning("😕 No jobs found.")
 
 # ------------------ Show Filters and Charts ------------------
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
     st.markdown("## 🎛 Filter Results")
-
-    # Filters
     available_cities = df["Location"].dropna().unique().tolist()
     if "Not Specified" in available_cities:
         available_cities.remove("Not Specified")
@@ -157,7 +88,6 @@ if st.session_state["job_data"] is not None:
     ))
     selected_skill = st.selectbox("🛠 Filter by Skill:", ["All"] + available_skills)
 
-    # Apply Filters
     filtered_df = df.copy()
     if selected_city != "All":
         filtered_df = filtered_df[filtered_df["Location"] == selected_city]
@@ -168,11 +98,8 @@ if st.session_state["job_data"] is not None:
     st.markdown("### 📋 Filtered Job Listings")
     st.write(filtered_df.to_markdown(index=False), unsafe_allow_html=True)
 
-    # ------------------ Charts ------------------
     st.markdown("## 📊 Job Market Insights")
-
     if not filtered_df.empty:
-        # Top Cities
         top_cities = filtered_df["Location"].value_counts().head(10)
         fig1, ax1 = plt.subplots(figsize=(8, 5))
         sns.barplot(x=top_cities.values, y=top_cities.index, ax=ax1, palette="coolwarm")
@@ -181,44 +108,26 @@ if st.session_state["job_data"] is not None:
         ax1.set_ylabel("City")
         st.pyplot(fig1)
 
-        # Top Titles
         top_titles = filtered_df["Job Title"].value_counts().head(10)
         fig2, ax2 = plt.subplots(figsize=(8, 5))
         sns.barplot(x=top_titles.values, y=top_titles.index, ax=ax2, palette="light:#5A9")
         ax2.set_title("Most Common Job Titles")
         st.pyplot(fig2)
 
-        # Top Skills
-        all_skills = []
-        for s in filtered_df["Skills"]:
-            if s != "N/A":
-                all_skills.extend([x.strip() for x in s.split(",")])
-        skill_series = pd.Series(all_skills).value_counts().head(10)
-        if not skill_series.empty:
-            fig3, ax3 = plt.subplots(figsize=(8, 5))
-            skill_series = skill_series.sort_values(ascending=True)
-            sns.barplot(x=skill_series.values, y=skill_series.index, ax=ax3, palette="viridis")
-            ax3.set_title("Top Required Skills")
-            st.pyplot(fig3)
-
-        # Top Companies
         top_companies = filtered_df["Company"].value_counts().head(10)
-        if not top_companies.empty:
-            fig4, ax4 = plt.subplots(figsize=(8, 5))
-            sns.barplot(x=top_companies.values, y=top_companies.index, ax=ax4, palette="crest")
-            ax4.set_title("Top Companies Hiring")
-            ax4.set_xlabel("Number of Jobs")
-            ax4.set_ylabel("Company")
-            st.pyplot(fig4)
+        fig4, ax4 = plt.subplots(figsize=(8, 5))
+        sns.barplot(x=top_companies.values, y=top_companies.index, ax=ax4, palette="crest")
+        ax4.set_title("Top Companies Hiring")
+        ax4.set_xlabel("Number of Jobs")
+        ax4.set_ylabel("Company")
+        st.pyplot(fig4)
 
-        # Job Trend
         trend_df = filtered_df.groupby("Posted").size().reset_index(name="Job Count")
         fig5, ax5 = plt.subplots(figsize=(8, 5))
         sns.lineplot(data=trend_df, x="Posted", y="Job Count", marker="o", ax=ax5)
         ax5.set_title("Job Posting Trend Over Time")
         st.pyplot(fig5)
 
-        # Forecasting
         st.markdown("## 🔮 Job Forecast (Next 7 Days)")
         prophet_df = trend_df.rename(columns={"Posted": "ds", "Job Count": "y"})
         model = Prophet()
@@ -227,6 +136,5 @@ if st.session_state["job_data"] is not None:
         forecast = model.predict(future)
         fig6 = model.plot(forecast)
         st.pyplot(fig6)
-
     else:
         st.warning("No data available after filtering.")
