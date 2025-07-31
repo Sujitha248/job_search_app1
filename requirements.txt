@@ -6,3 +6,4 @@ prophet
 tabulate
 requests
 bs4
+lxml
