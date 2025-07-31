@@ -5,4 +5,4 @@ seaborn
 prophet
 tabulate
 requests
-PyGithub
+bs4
