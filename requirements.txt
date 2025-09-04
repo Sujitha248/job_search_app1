@@ -3,6 +3,5 @@ pandas
 scikit-learn
 matplotlib
 seaborn
-nltk
-wordcloud
-PyPDF2
+requests
+
