@@ -21,7 +21,6 @@ location = st.text_input("Location:", "India")
 
 st.markdown("### 🎯 Optional Filters")
 skill = st.text_input("Required Skill (optional):", "")
-experience = st.selectbox("Experience Level (Years):", ["", "0", "1", "2", "3", "4", "5+"])
 
 # ------------------ API Key from Secrets ------------------
 API_KEY = st.secrets["JSEARCH_API_KEY"]  # stored in .streamlit/secrets.toml
@@ -45,8 +44,6 @@ def fetch_jobs(query, location):
                 "Job Title": job.get("job_title", "N/A"),
                 "Company": job.get("employer_name", "N/A"),
                 "Location": job.get("job_city", "N/A"),
-                "Experience": job.get("job_required_experience", {}).get("required_experience_in_months", "N/A"),
-                "Salary": job.get("job_salary_currency", "N/A"),
                 "Posted": job.get("job_posted_at_datetime_utc", "N/A"),
                 "Skills": skill if skill else "N/A",
                 "Apply Link": job.get("job_apply_link", "N/A")
