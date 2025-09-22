@@ -108,7 +108,7 @@ if st.button("🔍 Search Jobs"):
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
-    # ------------------ Job Listings Table ------------------
+    # ------------------ Job Listings Table --------------
     st.markdown("### 📋 Job Listings")
 
     # Keep only relevant columns
