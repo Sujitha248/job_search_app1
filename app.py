@@ -109,13 +109,12 @@ if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
     # ------------------ Job Listings Table ------------------
-    st.success(f"Showing {len(df)} jobs.")
     st.markdown("### 📋 Job Listings")
 
     # Keep only relevant columns
     display_df = df[["Job Title", "Company", "Location", "Job Type", "Posted", "Apply Link"]].copy()
 
-    # Format Apply Link as clickable Markdown
+    # Format Apply Link as clickable Markdown (original lambda)
     display_df["Apply Link"] = display_df["Apply Link"].apply(
         lambda x: f"[Apply Here]({x.split('href=')[1].split(' ')[0].strip(\"'\")})"
     )
@@ -128,58 +127,42 @@ if st.session_state["job_data"] is not None:
     with tabs[0]:
         # Top Job Locations
         st.markdown("### Top Job Locations")
-        if "Location" in df.columns and not df["Location"].isnull().all():
-            top_cities = df["Location"].value_counts().head(10)
-            if not top_cities.empty:
-                fig1 = px.bar(
-                    x=top_cities.values,
-                    y=top_cities.index,
-                    orientation='h',
-                    labels={'x':'Number of Jobs','y':'Location'},
-                    title='Top Job Locations',
-                    color=top_cities.values,
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig1, use_container_width=True)
-            else:
-                st.warning("No location data to display.")
-        else:
-            st.warning("Location column missing or empty.")
+        top_cities = df["Location"].value_counts().head(10)
+        fig1 = px.bar(
+            x=top_cities.values,
+            y=top_cities.index,
+            orientation='h',
+            labels={'x':'Number of Jobs','y':'Location'},
+            title='Top Job Locations',
+            color=top_cities.values,
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig1, use_container_width=True)
 
         # Most Common Job Titles
         st.markdown("### Most Common Job Titles")
-        if "Job Title" in df.columns and not df["Job Title"].isnull().all():
-            top_titles = df["Job Title"].value_counts().head(10)
-            if not top_titles.empty:
-                fig2 = px.bar(
-                    x=top_titles.values,
-                    y=top_titles.index,
-                    orientation='h',
-                    labels={'x':'Number of Jobs','y':'Job Title'},
-                    title='Most Common Job Titles',
-                    color=top_titles.values,
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig2, use_container_width=True)
-            else:
-                st.warning("No job title data to display.")
+        top_titles = df["Job Title"].value_counts().head(10)
+        fig2 = px.bar(
+            x=top_titles.values,
+            y=top_titles.index,
+            orientation='h',
+            labels={'x':'Number of Jobs','y':'Job Title'},
+            title='Most Common Job Titles',
+            color=top_titles.values,
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
         # Top Companies Hiring
         st.markdown("### Top Companies Hiring")
-        if "Company" in df.columns and not df["Company"].isnull().all():
-            top_companies = df["Company"].value_counts().head(10)
-            if not top_companies.empty:
-                fig3 = px.bar(
-                    x=top_companies.values,
-                    y=top_companies.index,
-                    orientation='h',
-                    labels={'x':'Number of Jobs', 'y':'Company'},
-                    title='Top Companies Hiring',
-                    color=top_companies.values,
-                    color_continuous_scale='Plasma'
-                )
-                st.plotly_chart(fig3, use_container_width=True)
-            else:
-                st.warning("No company data to display.")
-        else:
-            st.warning("Company column missing or empty.")
+        top_companies = df["Company"].value_counts().head(10)
+        fig3 = px.bar(
+            x=top_companies.values,
+            y=top_companies.index,
+            orientation='h',
+            labels={'x':'Number of Jobs', 'y':'Company'},
+            title='Top Companies Hiring',
+            color=top_companies.values,
+            color_continuous_scale='Plasma'
+        )
+        st.plotly_chart(fig3, use_container_width=True)
