@@ -138,7 +138,7 @@ if st.session_state["job_data"] is not None:
         fig1 = px.bar(x=top_cities.values, y=top_cities.index, orientation='h',
                       labels={'x':'Number of Jobs','y':'Location'},
                       title='Top Job Locations',
-                      color=top_cities.values, color_continuous_scale='Cool')
+                      color=top_cities.values, color_continuous_scale='Blues')
         st.plotly_chart(fig1, use_container_width=True)
 
         st.markdown("### Most Common Job Titles")
@@ -164,7 +164,7 @@ if st.session_state["job_data"] is not None:
         fig_jt = px.bar(x=job_type_dist.index, y=job_type_dist.values,
                         labels={'x':'Job Type','y':'Number of Jobs'},
                         title='Jobs by Job Type',
-                        color=job_type_dist.values, color_continuous_scale='Set2')
+                        color=job_type_dist.values, color_discrete_sequence='px.colors.qualitative.SET2')
         st.plotly_chart(fig_jt, use_container_width=True)
 
     # Tab 3: Industry
