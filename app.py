@@ -108,16 +108,24 @@ if st.button("🔍 Search Jobs"):
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
 
-    # ------------------ Job Listings Table ------------------
+    # ------------------ Job Listings Table -----------------
     st.markdown("### 📋 Job Listings")
 
     # Keep only relevant columns
     display_df = df[["Job Title", "Company", "Location", "Job Type", "Posted", "Apply Link"]].copy()
 
-    # Format Apply Link as clickable Markdown (original lambda)
-    display_df["Apply Link"] = display_df["Apply Link"].apply(
-        lambda x: f"[Apply Here]({x.split('href=')[1].split(' ')[0].strip(\"'\")})"
-    )
+    # Format Apply Link safely and keep it clickable
+    def format_apply_link(x):
+        try:
+            if "href=" in x:
+                url = x.split("href=")[1].split(" ")[0].strip("'\"")
+                return f"[Apply Here]({url})"
+            else:
+                return "[Apply Here](#)"
+        except:
+            return "[Apply Here](#)"
+
+    display_df["Apply Link"] = display_df["Apply Link"].apply(format_apply_link)
 
     # Display as interactive dataframe
     st.dataframe(display_df, use_container_width=True)
