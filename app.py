@@ -18,12 +18,6 @@ job_title = st.text_input("Job Title:", "")
 location = st.text_input("Location:", "India")
 
 st.markdown("### 🎯 Optional Filters")
-industry = st.text_input("Industry (optional):", "")
-
-experience_filter = st.selectbox(
-    "Experience Level (optional):",
-    ["All", "Internship", "Entry level", "Mid level", "Senior level", "Executive"]
-)
 job_type_filter = st.selectbox(
     "Job Type (optional):",
     ["All", "Full-time", "Part-time", "Contract", "Internship", "Temporary"]
@@ -40,10 +34,10 @@ def preprocess_data(df):
     df.drop_duplicates(inplace=True)
     if "Posted" in df.columns:
         df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce").dt.date
-    for col in ["Job Title", "Company", "Location", "Industry", "Experience", "Job Type"]:
+    for col in ["Job Title", "Company", "Location", "Job Type"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip().str.title()
-    df.replace(["Not specified", "nan", "NaT"], "Unknown", inplace=True)
+    df.replace(["Not Specified", "nan", "NaT"], "Unknown", inplace=True)
     df.fillna("Unknown", inplace=True)
     return df
 
@@ -60,15 +54,12 @@ def fetch_jobs(query, location):
         data = response.json()
         jobs = []
         for job in data.get("data", []):
-            exp_info = job.get("job_required_experience", {})
             jobs.append({
-                "Job Title": job.get("job_title", "Not specified"),
-                "Company": job.get("employer_name", "Not specified"),
-                "Location": job.get("job_city", "Not specified"),
-                "Posted": job.get("job_posted_at_datetime_utc", "Not specified"),
-                "Industry": job.get("job_industry", "Not specified"),
-                "Experience": exp_info.get("experience_level", "Not specified"),
-                "Job Type": job.get("job_employment_type", "Not specified"),
+                "Job Title": job.get("job_title", "Not Specified"),
+                "Company": job.get("employer_name", "Not Specified"),
+                "Location": job.get("job_city", "Not Specified"),
+                "Posted": job.get("job_posted_at_datetime_utc", "Not Specified"),
+                "Job Type": job.get("job_employment_type", "Not Specified"),
                 "Apply Link": f"<a href='{job.get('job_apply_link', '#')}' target='_blank'>Apply Here</a>"
             })
         return jobs
@@ -86,7 +77,7 @@ if st.button("🔍 Search Jobs"):
             st.session_state["job_data"] = df.copy()
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             df.to_csv(fallback_path, index=False)
-            st.success("✅ Job results updated and fallback saved.")
+            st.success("✅ Job results updated.")
         else:
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             if os.path.exists(fallback_path):
@@ -99,14 +90,6 @@ if st.button("🔍 Search Jobs"):
                 if location:
                     filtered_fallback = filtered_fallback[
                         filtered_fallback["Location"].str.contains(location, case=False, na=False)
-                    ]
-                if industry:
-                    filtered_fallback = filtered_fallback[
-                        filtered_fallback["Industry"].str.contains(industry, case=False, na=False)
-                    ]
-                if experience_filter != "All":
-                    filtered_fallback = filtered_fallback[
-                        filtered_fallback["Experience"].str.contains(experience_filter, case=False, na=False)
                     ]
                 if job_type_filter != "All":
                     filtered_fallback = filtered_fallback[
@@ -121,72 +104,82 @@ if st.button("🔍 Search Jobs"):
             else:
                 st.warning("⚠ No fallback file found.")
 
-# ------------------ Display & Tabs ------------------
+# ------------------ Display Job Listings and Charts ------------------
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
+
+    # ------------------ Job Listings Table ------------------
     st.success(f"Showing {len(df)} jobs.")
-    st.markdown("### 📋 Job Listings (click links to apply)")
-    st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+    st.markdown("### 📋 Job Listings")
 
-    # ------------------ Tabs for clean layout ------------------
-    tabs = st.tabs(["Overview", "Experience & Type", "Industry", "Trends"])
+    # Keep only relevant columns
+    display_df = df[["Job Title", "Company", "Location", "Job Type", "Posted", "Apply Link"]].copy()
 
-    # Tab 1: Overview
+    # Format Apply Link as clickable Markdown
+    display_df["Apply Link"] = display_df["Apply Link"].apply(
+        lambda x: f"[Apply Here]({x.split('href=')[1].split(' ')[0].strip(\"'\")})"
+    )
+
+    # Display as interactive dataframe
+    st.dataframe(display_df, use_container_width=True)
+
+    # ------------------ Overview Tab ------------------
+    tabs = st.tabs(["Overview"])
     with tabs[0]:
+        # Top Job Locations
         st.markdown("### Top Job Locations")
-        top_cities = df["Location"].value_counts().head(10)
-        fig1 = px.bar(x=top_cities.values, y=top_cities.index, orientation='h',
-                      labels={'x':'Number of Jobs','y':'Location'},
-                      title='Top Job Locations',
-                      color=top_cities.values, color_continuous_scale='Blues')
-        st.plotly_chart(fig1, use_container_width=True)
+        if "Location" in df.columns and not df["Location"].isnull().all():
+            top_cities = df["Location"].value_counts().head(10)
+            if not top_cities.empty:
+                fig1 = px.bar(
+                    x=top_cities.values,
+                    y=top_cities.index,
+                    orientation='h',
+                    labels={'x':'Number of Jobs','y':'Location'},
+                    title='Top Job Locations',
+                    color=top_cities.values,
+                    color_continuous_scale='Blues'
+                )
+                st.plotly_chart(fig1, use_container_width=True)
+            else:
+                st.warning("No location data to display.")
+        else:
+            st.warning("Location column missing or empty.")
 
+        # Most Common Job Titles
         st.markdown("### Most Common Job Titles")
-        top_titles = df["Job Title"].value_counts().head(10)
-        fig2 = px.bar(x=top_titles.values, y=top_titles.index, orientation='h',
-                      labels={'x':'Number of Jobs','y':'Job Title'},
-                      title='Most Common Job Titles',
-                      color=top_titles.values, color_continuous_scale='Blues')
-        st.plotly_chart(fig2, use_container_width=True)
+        if "Job Title" in df.columns and not df["Job Title"].isnull().all():
+            top_titles = df["Job Title"].value_counts().head(10)
+            if not top_titles.empty:
+                fig2 = px.bar(
+                    x=top_titles.values,
+                    y=top_titles.index,
+                    orientation='h',
+                    labels={'x':'Number of Jobs','y':'Job Title'},
+                    title='Most Common Job Titles',
+                    color=top_titles.values,
+                    color_continuous_scale='Blues'
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.warning("No job title data to display.")
 
-    # Tab 2: Experience & Job Type
-    with tabs[1]:
-        st.markdown("### Jobs by Experience Level")
-        exp_dist = df["Experience"].value_counts()
-        fig_exp = px.bar(x=exp_dist.index, y=exp_dist.values,
-                         labels={'x':'Experience Level','y':'Number of Jobs'},
-                         title='Jobs by Experience Level',
-                         color=exp_dist.values, color_continuous_scale='Magma')
-        st.plotly_chart(fig_exp, use_container_width=True)
-
-        st.markdown("### Jobs by Job Type")
-        job_type_dist = df["Job Type"].value_counts()
-        fig_jt = px.bar(x=job_type_dist.index, y=job_type_dist.values,
-                        labels={'x':'Job Type','y':'Number of Jobs'},
-                        title='Jobs by Job Type',
-                        color=job_type_dist.values, color_discrete_sequence='px.colors.qualitative.SET2')
-        st.plotly_chart(fig_jt, use_container_width=True)
-
-    # Tab 3: Industry
-    with tabs[2]:
-        st.markdown("### Top Industries Hiring")
-        industry_dist = df["Industry"].value_counts().head(10)
-        fig_ind = px.bar(x=industry_dist.values, y=industry_dist.index, orientation='h',
-                         labels={'x':'Number of Jobs','y':'Industry'},
-                         title='Jobs by Industry',
-                         color=industry_dist.values, color_continuous_scale='Viridis')
-        st.plotly_chart(fig_ind, use_container_width=True)
-
-    # Tab 4: Trends
-    with tabs[3]:
-        if "Posted" in df.columns:
-            trend_df = df[df["Posted"] != "Unknown"]
-            trend_df["Posted"] = pd.to_datetime(trend_df["Posted"], errors='coerce')
-            trend_df = trend_df.dropna(subset=["Posted"])
-            trend = trend_df.groupby(trend_df["Posted"].dt.to_period("M")).size()
-            trend.index = trend.index.to_timestamp()
-            fig_trend = px.line(x=trend.index, y=trend.values,
-                                labels={'x':'Date','y':'Number of Jobs'},
-                                title='Job Posting Trend Over Time',
-                                markers=True)
-            st.plotly_chart(fig_trend, use_container_width=True)
+        # Top Companies Hiring
+        st.markdown("### Top Companies Hiring")
+        if "Company" in df.columns and not df["Company"].isnull().all():
+            top_companies = df["Company"].value_counts().head(10)
+            if not top_companies.empty:
+                fig3 = px.bar(
+                    x=top_companies.values,
+                    y=top_companies.index,
+                    orientation='h',
+                    labels={'x':'Number of Jobs', 'y':'Company'},
+                    title='Top Companies Hiring',
+                    color=top_companies.values,
+                    color_continuous_scale='Plasma'
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.warning("No company data to display.")
+        else:
+            st.warning("Company column missing or empty.")
