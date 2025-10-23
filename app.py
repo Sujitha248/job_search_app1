@@ -43,11 +43,11 @@ def fetch_jobs(query, location):
         jobs = []
         for job in data.get("data", []):
             jobs.append({
-                "Job Title": job.get("job_title", "Not specified"),
-                "Company": job.get("employer_name", "Not specified"),
-                "Location": job.get("job_city", "Not specified"),
-                "Posted": job.get("job_posted_at_datetime_utc", "Not specified"),
-                "Job Type": job.get("job_employment_type", "Not specified"),
+                "Job Title": job.get("job_title", "Not Specified"),
+                "Company": job.get("employer_name", "Not Specified"),
+                "Location": job.get("job_city", "Not Specified"),
+                "Posted": job.get("job_posted_at_datetime_utc", "Not Specified"),
+                "Job Type": job.get("job_employment_type", "Not Specified"),
                 "Apply Link": f"<a href='{job.get('job_apply_link', '#')}' target='_blank'>Apply Here</a>"
             })
         return jobs
@@ -66,12 +66,8 @@ if st.button("🔍 Search Jobs"):
             # ------------------ Data Cleaning ------------------
             df = df.drop_duplicates()
             for col in ["Job Title", "Company", "Location", "Job Type"]:
-                df[col] = df[col].fillna("Not specified").astype(str).str.strip().str.title()
+                df[col] = df[col].fillna("Not Specified").astype(str).str.strip().str.title()
             df["Posted"] = pd.to_datetime(df["Posted"], errors="coerce")
-
-            # Apply Job Type filter
-            if job_type_filter != "All":
-                df = df[df["Job Type"].str.contains(job_type_filter, case=False, na=False)]
 
             st.session_state["job_data"] = df.copy()
 
@@ -86,16 +82,23 @@ if st.button("🔍 Search Jobs"):
             if os.path.exists(fallback_path):
                 fallback_df = pd.read_csv(fallback_path)
                 for col in ["Job Title", "Company", "Location", "Job Type"]:
-                    fallback_df[col] = fallback_df[col].fillna("Not specified").astype(str).str.strip().str.title()
+                    fallback_df[col] = fallback_df[col].fillna("Not Specified").astype(str).str.strip().str.title()
+
                 fallback_df = fallback_df.drop_duplicates(subset=["Job Title", "Company", "Location", "Posted"])
 
                 filtered_fallback = fallback_df.copy()
                 if job_title:
-                    filtered_fallback = filtered_fallback[filtered_fallback["Job Title"].str.contains(job_title, case=False, na=False)]
+                    filtered_fallback = filtered_fallback[
+                        filtered_fallback["Job Title"].str.contains(job_title, case=False, na=False)
+                    ]
                 if location:
-                    filtered_fallback = filtered_fallback[filtered_fallback["Location"].str.contains(location, case=False, na=False)]
+                    filtered_fallback = filtered_fallback[
+                        filtered_fallback["Location"].str.contains(location, case=False, na=False)
+                    ]
                 if job_type_filter != "All":
-                    filtered_fallback = filtered_fallback[filtered_fallback["Job Type"].str.contains(job_type_filter, case=False, na=False)]
+                    filtered_fallback = filtered_fallback[
+                        filtered_fallback["Job Type"].str.contains(job_type_filter, case=False, na=False)
+                    ]
 
                 if not filtered_fallback.empty:
                     st.session_state["job_data"] = filtered_fallback
@@ -105,55 +108,64 @@ if st.button("🔍 Search Jobs"):
             else:
                 st.warning("⚠️ No fallback file found.")
 
-# ------------------ Display Job Listings ------------------
+# ------------------ Display and EDA ------------------
 if st.session_state["job_data"] is not None:
     df = st.session_state["job_data"]
-
     st.success(f"Showing {len(df)} jobs.")
     st.markdown("### 📋 Job Listings")
     st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-# ------------------ Trend Analysis ------------------
-if st.session_state["job_data"] is not None:
-    job_data = st.session_state["job_data"].copy()
-    st.markdown("## 📈 Trend Analysis")
+    if not df.empty:
+        st.markdown("## 📊 Exploratory Data Analysis & Job Market Trends")
 
-    job_data["Posted"] = pd.to_datetime(job_data["Posted"], errors="coerce")
-    trend_df = job_data.dropna(subset=["Posted"]).copy()
+        # Remove 'Not Specified' for plotting
+        df_plot = df.copy()
+        df_plot = df_plot[df_plot["Location"] != "Not Specified"]
+        df_plot = df_plot[df_plot["Company"] != "Not Specified"]
+        df_plot = df_plot[df_plot["Job Type"] != "Not Specified"]
 
-    # ------------------ 1. Job Posting Trend Over Time ------------------
-    trend_df["Posted_Date"] = trend_df["Posted"].dt.date
-    daily_trend = trend_df.groupby("Posted_Date").size()
-    st.markdown("### 🕓 Job Posting Trend Over Time")
-    st.line_chart(daily_trend)
+        # ------------------ 1. Job Posting Trend ------------------
+        st.markdown("### 📈 Job Posting Trend Over Time")
+        df_plot["Posted"] = pd.to_datetime(df_plot["Posted"], errors="coerce")
+        trend_df = df_plot.dropna(subset=["Posted"]).copy()
+        trend_df["Posted_Date"] = trend_df["Posted"].dt.date
+        daily_trend = trend_df.groupby("Posted_Date").size().sort_index()
+        st.line_chart(daily_trend)
 
-    # ------------------ 2. Location-Based Hiring Trend ------------------
-    st.markdown("### 🧭 Location-Based Hiring Trend")
-    if "Location" in job_data.columns and not job_data["Location"].isna().all():
-        top_locations = job_data["Location"].value_counts().head(5)
-        fig, ax = plt.subplots(figsize=(8, 5))
-        sns.barplot(x=top_locations.index, y=top_locations.values, ax=ax, palette="coolwarm")
-        ax.set_title("Top Hiring Locations")
+        # ------------------ 2. Top Job Locations ------------------
+        st.markdown("### 🏙 Top Hiring Locations")
+        top_locations = df_plot["Location"].value_counts().head(5)
+        fig, ax = plt.subplots(figsize=(8,5))
+        sns.barplot(y=top_locations.index, x=top_locations.values, ax=ax, palette="coolwarm")
+        ax.set_xlabel("Number of Jobs")
+        ax.set_ylabel("City")
+        ax.set_title("Top 5 Job Locations")
         st.pyplot(fig)
 
-    # ------------------ 3. Company-Wise Hiring Trend ------------------
-    st.markdown("### 🏢 Company-Wise Hiring Trend")
-    if "Company" in job_data.columns and not job_data["Company"].isna().all():
-        company_trend = job_data.groupby(["Company", job_data["Posted"].dt.date]).size().unstack(fill_value=0)
-        top_companies = company_trend.sum().sort_values(ascending=False).head(10).index
-        st.line_chart(company_trend[top_companies])
+        # ------------------ 3. Top Companies Hiring ------------------
+        st.markdown("### 🏢 Top Companies Hiring")
+        top_companies = df_plot["Company"].value_counts().head(10)
+        fig, ax = plt.subplots(figsize=(8,5))
+        sns.barplot(y=top_companies.index, x=top_companies.values, ax=ax, palette="crest")
+        ax.set_xlabel("Number of Jobs")
+        ax.set_ylabel("Company")
+        ax.set_title("Top 10 Companies Hiring")
+        st.pyplot(fig)
 
-    # ------------------ 4. Job Type Trend Over Time ------------------
-    st.markdown("### 🧑‍💻 Job Type Trend Over Time")
-    if "Job Type" in job_data.columns and not job_data["Job Type"].isna().all():
-        job_type_trend = job_data.groupby(["Job Type", job_data["Posted"].dt.date]).size().unstack(fill_value=0)
-        st.line_chart(job_type_trend.T)
+        # ------------------ 4. Job Type Distribution ------------------
+        st.markdown("### 💼 Job Type Distribution")
+        job_type_counts = df_plot["Job Type"].value_counts()
+        fig, ax = plt.subplots(figsize=(6,5))
+        job_type_counts.plot.pie(autopct="%1.1f%%", startangle=90, ax=ax)
+        ax.set_ylabel("")
+        ax.set_title("Job Type Distribution")
+        st.pyplot(fig)
 
-    # ------------------ 5. Weekly & Monthly Trends ------------------
-    st.markdown("### 📅 Weekly & Monthly Job Posting Trends")
-    trend_df["Week"] = trend_df["Posted"].dt.isocalendar().week
-    trend_df["Month"] = trend_df["Posted"].dt.month
-    weekly_trend = trend_df.groupby("Week").size()
-    monthly_trend = trend_df.groupby("Month").size()
-    st.line_chart(weekly_trend)
-    st.line_chart(monthly_trend)
+        # ------------------ 5. Weekly & Monthly Trends ------------------
+        st.markdown("### 📅 Weekly & Monthly Trends")
+        trend_df["Week"] = trend_df["Posted"].dt.isocalendar().week
+        trend_df["Month"] = trend_df["Posted"].dt.month
+        weekly_trend = trend_df.groupby("Week").size()
+        monthly_trend = trend_df.groupby("Month").size()
+        st.line_chart(weekly_trend)
+        st.line_chart(monthly_trend)
