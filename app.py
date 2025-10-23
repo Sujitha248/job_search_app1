@@ -25,7 +25,7 @@ job_type_filter = st.selectbox(
 )
 
 # ------------------ API Key ------------------
-API_KEY = st.secrets["JSEARCH_API_KEY"]  # store in .streamlit/secrets.toml
+API_KEY = st.secrets["JSEARCH_API_KEY"]
 API_URL = "https://jsearch.p.rapidapi.com/search"
 
 # ------------------ Job Fetch Function ------------------
@@ -63,7 +63,7 @@ if st.button("🔍 Search Jobs"):
         if jobs:
             df = pd.DataFrame(jobs)
 
-            # ------------------ Data Cleaning ------------------
+            # Data Cleaning
             df = df.drop_duplicates()
             for col in ["Job Title", "Company", "Location", "Job Type"]:
                 df[col] = df[col].fillna("Not Specified").astype(str).str.strip().str.title()
@@ -77,7 +77,7 @@ if st.button("🔍 Search Jobs"):
             st.success("✅ Job results saved.")
 
         else:
-            # ------------------ Fallback Logic ------------------
+            # Fallback
             fallback_path = os.path.join(os.getcwd(), "fallback_jobs.csv")
             if os.path.exists(fallback_path):
                 fallback_df = pd.read_csv(fallback_path)
@@ -124,7 +124,7 @@ if st.session_state["job_data"] is not None:
         df_plot = df_plot[df_plot["Company"] != "Not Specified"]
         df_plot = df_plot[df_plot["Job Type"] != "Not Specified"]
 
-        # ------------------ 1. Job Posting Trend ------------------
+        # ------------------ 1. Daily Trend ------------------
         st.markdown("### 📈 Job Posting Trend Over Time")
         df_plot["Posted"] = pd.to_datetime(df_plot["Posted"], errors="coerce")
         trend_df = df_plot.dropna(subset=["Posted"]).copy()
@@ -132,7 +132,7 @@ if st.session_state["job_data"] is not None:
         daily_trend = trend_df.groupby("Posted_Date").size().sort_index()
         st.line_chart(daily_trend)
 
-        # ------------------ 2. Top Job Locations ------------------
+        # ------------------ 2. Top Locations ------------------
         st.markdown("### 🏙 Top Hiring Locations")
         top_locations = df_plot["Location"].value_counts().head(5)
         fig, ax = plt.subplots(figsize=(8,5))
@@ -142,7 +142,7 @@ if st.session_state["job_data"] is not None:
         ax.set_title("Top 5 Job Locations")
         st.pyplot(fig)
 
-        # ------------------ 3. Top Companies Hiring ------------------
+        # ------------------ 3. Top Companies ------------------
         st.markdown("### 🏢 Top Companies Hiring")
         top_companies = df_plot["Company"].value_counts().head(10)
         fig, ax = plt.subplots(figsize=(8,5))
@@ -161,11 +161,18 @@ if st.session_state["job_data"] is not None:
         ax.set_title("Job Type Distribution")
         st.pyplot(fig)
 
-        # ------------------ 5. Weekly & Monthly Trends ------------------
-        st.markdown("### 📅 Weekly & Monthly Trends")
-        trend_df["Week"] = trend_df["Posted"].dt.isocalendar().week
-        trend_df["Month"] = trend_df["Posted"].dt.month
-        weekly_trend = trend_df.groupby("Week").size()
-        monthly_trend = trend_df.groupby("Month").size()
+        # ------------------ 5. Weekly Trend ------------------
+        st.markdown("### 📅 Weekly Job Posting Trend")
+        trend_df["Year_Week"] = trend_df["Posted"].dt.strftime("%Y-%U")
+        weekly_trend = trend_df.groupby("Year_Week").size().sort_index()
+        weekly_trend.index = pd.to_datetime([f"{d}-1" for d in weekly_trend.index], format="%Y-%U-%w")
+        weekly_trend = weekly_trend.asfreq('W-MON', fill_value=0)
         st.line_chart(weekly_trend)
+
+        # ------------------ 6. Monthly Trend ------------------
+        st.markdown("### 📅 Monthly Job Posting Trend")
+        trend_df["Year_Month"] = trend_df["Posted"].dt.to_period("M")
+        monthly_trend = trend_df.groupby("Year_Month").size().sort_index()
+        monthly_trend.index = monthly_trend.index.to_timestamp()
+        monthly_trend = monthly_trend.asfreq('MS', fill_value=0)
         st.line_chart(monthly_trend)
